@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Playfair Cipher – Socket Chat Demo</title>
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--tx:#1b2030;--mu:#667;--bd:#dfe3ee;--a:#2f5bea;--b:#0f9d77;--hl:#ffe9a8;--code:#eef1fa}
+@media (prefers-color-scheme:dark){:root{--bg:#12151f;--card:#1b2030;--tx:#e8ebf5;--mu:#97a0b8;--bd:#2c3350;--a:#7b9bff;--b:#3ddbb0;--hl:#5b4a12;--code:#232a42}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:"Segoe UI",Tahoma,Arial,sans-serif;line-height:1.7}
+.wrap{max-width:1100px;margin:auto;padding:20px}
+h1{font-size:1.6rem;margin:.2em 0}h2{font-size:1.15rem;margin:0 0 10px}
+.sub{color:var(--mu);margin:0 0 18px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:16px;margin-bottom:16px}
+.ltr{direction:ltr;unicode-bidi:embed;font-family:Consolas,Menlo,monospace}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:800px){.grid2{grid-template-columns:1fr}}
+input[type=text]{width:100%;padding:10px;border:1px solid var(--bd);border-radius:10px;background:var(--bg);color:var(--tx);font-size:1rem}
+button{padding:10px 18px;border:0;border-radius:10px;background:var(--a);color:#fff;font-size:1rem;cursor:pointer}
+button.b{background:var(--b)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+table.m{border-collapse:collapse;direction:ltr;margin:6px auto}
+table.m td{width:46px;height:46px;text-align:center;border:1px solid var(--bd);font:600 1.1rem Consolas,monospace;border-radius:6px}
+table.m td.k{background:var(--code)}table.m td.h{background:var(--hl)}
+table.t{width:100%;border-collapse:collapse;font-size:.95rem}
+table.t th,table.t td{padding:6px 8px;border-bottom:1px solid var(--bd);text-align:center}
+.chip{display:inline-block;padding:2px 8px;border-radius:8px;background:var(--code);margin:2px}
+.msg{padding:8px 10px;border-radius:10px;margin:6px 0;background:var(--code);word-break:break-all}
+.msg small{display:block;color:var(--mu)}
+.log{max-height:230px;overflow:auto}
+.pkt{border:1px dashed var(--bd);border-radius:10px;padding:8px;margin:6px 0;font-size:.85rem;direction:ltr;text-align:left}
+.pkt b.h{color:var(--a)}.pkt b.p{color:var(--b)}
+.err{color:#d33}
+.tag{font-size:.8rem;color:var(--mu)}
+ol{padding-inline-start:20px;margin:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🔐 Playfair Cipher – Two-Entity Socket Chat</h1>
+  <p class="sub">عرض توضيحي بيحاكي مشروع البايثون (entity1.py ⇄ entity2.py): المصفوفة، التشفير، وفك التشفير.</p>
+
+  <div class="card">
+    <h2>1) المفتاح ومصفوفة Playfair 5×5</h2>
+    <div class="row"><label for="key">الـ Key (لازم يكون نفسه عند الطرفين):</label>
+      <input type="text" id="key" class="ltr" value="MONARCHY" style="max-width:260px"></div>
+    <table class="m" id="matrix"></table>
+    <p class="tag" style="text-align:center">الخانات الملونة = حروف الكلمة المفتاحية، والباقي بقية الأبجدية. حرفا I و J في خانة واحدة.</p>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>🖥️ Entity 1 <span class="tag">(Server – listens on 127.0.0.1:5000)</span></h2>
+      <div class="row"><input type="text" id="in1" class="ltr" placeholder="Type a message…"><button id="s1">Send →</button></div>
+      <div class="log" id="log1"></div>
+    </div>
+    <div class="card">
+      <h2>💻 Entity 2 <span class="tag">(Client – local port 5001)</span></h2>
+      <div class="row"><input type="text" id="in2" class="ltr" placeholder="Type a message…"><button class="b" id="s2">← Send</button></div>
+      <div class="log" id="log2"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const ALPHA="ABCDEFGHIKLMNOPQRSTUVWXYZ";
+let KEY="MONARCHY";
+
+function buildMatrix(key){
+  const k=[];
+  for(let ch of key.toUpperCase()){
+    if(ch>="A"&&ch<="Z"){ if(ch==="J")ch="I"; if(!k.includes(ch))k.push(ch); }
+  }
+  const keyCount=k.length;
+  for(const ch of ALPHA) if(!k.includes(ch)) k.push(ch);
+  const m=[],pos={};
+  for(let r=0;r<5;r++){m.push(k.slice(r*5,r*5+5));}
+  for(let r=0;r<5;r++)for(let c=0;c<5;c++)pos[m[r][c]]=[r,c];
+  return {m,pos,keyCount};
+}
+function preparePairs(msg){
+  const t=[...msg.toUpperCase()].filter(c=>c>="A"&&c<="Z").join("").replace(/J/g,"I");
+  const pairs=[];let i=0;
+  while(i<t.length){
+    const f=t[i];let s;
+    if(i+1>=t.length){s=f!=="X"?"X":"Q";i+=1;}
+    else if(t[i+1]===f){s=f!=="X"?"X":"Q";i+=1;}
+    else{s=t[i+1];i+=2;}
+    pairs.push(f+s);
+  }
+  return pairs;
+}
+function transform(pair,M,decrypt){
+  const [a,b]=pair,[ra,ca]=M.pos[a],[rb,cb]=M.pos[b],st=decrypt?4:1;
+  if(ra===rb) return {out:M.m[ra][(ca+st)%5]+M.m[rb][(cb+st)%5],rule:"نفس الصف"};
+  if(ca===cb) return {out:M.m[(ra+st)%5][ca]+M.m[(rb+st)%5][cb],rule:"نفس العمود"};
+  return {out:M.m[ra][cb]+M.m[rb][ca],rule:"مستطيل"};
+}
+function encrypt(msg){
+  const M=buildMatrix(KEY),pairs=preparePairs(msg),rows=[];
+  const ct=pairs.map(p=>{const r=transform(p,M,false);rows.push({p,...r});return r.out;}).join("");
+  return {ct,rows,pairs};
+}
+function decrypt(ct){
+  const M=buildMatrix(KEY);
+  const t=[...ct.toUpperCase()].filter(c=>ALPHA.includes(c)).join("");
+  if(t.length%2!==0) throw new Error("Playfair ciphertext must contain an even number of letters.");
+  const rows=[];let out="";
+  for(let i=0;i<t.length;i+=2){const p=t.slice(i,i+2),r=transform(p,M,true);rows.push({p,...r});out+=r.out;}
+  return {pt:out,rows};
+}
+
+const esc=s=>s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+function drawMatrix(){
+  const M=buildMatrix(KEY);
+  document.getElementById("matrix").innerHTML=M.m.map((row,r)=>
+    "<tr>"+row.map((ch,c)=>`<td class="${r*5+c<M.keyCount?"k":""}" data-ch="${ch}">${ch}</td>`).join("")+"</tr>").join("");
+}
+function flash(letters){
+  document.querySelectorAll("#matrix td").forEach(td=>td.classList.toggle("h",letters.includes(td.dataset.ch)));
+}
+
+function addMsg(logId,label,text,sub){
+  const el=document.getElementById(logId);
+  el.insertAdjacentHTML("afterbegin",`<div class="msg ltr"><small style="direction:rtl;text-align:right">${label}</small>${esc(text)}${sub?`<small>${esc(sub)}</small>`:""}</div>`);
+}
+
+function send(from){
+  const inp=document.getElementById(from===1?"in1":"in2");
+  const msg=inp.value;
+  if(msg.trim()==="/quit"){inp.value="";return;}
+  const enc=encrypt(msg);
+  if(!enc.ct){addMsg(from===1?"log1":"log2","⚠️","Please enter at least one English letter.");return;}
+  inp.value="";
+  const me=from===1?"log1":"log2",other=from===1?"log2":"log1";
+  const meName=from===1?"Entity 1":"Entity 2";
+
+  addMsg(me,"أنا أرسلت",msg,"Encrypted before sending: "+enc.ct);
+
+  try{
+    const dec=decrypt(enc.ct);
+    addMsg(other,meName+" sent ciphertext",enc.ct,"decrypted: "+dec.pt);
+  }catch(e){
+    addMsg(other,"⚠️","Could not decrypt received message: "+e.message);
+  }
+  flash(enc.pairs.join(""));
+}
+
+document.getElementById("s1").onclick=()=>send(1);
+document.getElementById("s2").onclick=()=>send(2);
+["in1","in2"].forEach((id,i)=>document.getElementById(id).addEventListener("keydown",e=>{if(e.key==="Enter")send(i+1);}));
+document.getElementById("key").addEventListener("input",e=>{
+  KEY=/[a-z]/i.test(e.target.value)?e.target.value:"MONARCHY";
+  drawMatrix();
+});
+drawMatrix();
+</script>
+</body>
+</html>
